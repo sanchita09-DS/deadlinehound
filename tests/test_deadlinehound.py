@@ -1,5 +1,5 @@
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
@@ -39,19 +39,30 @@ def test_verify_rejects_invented_evidence():
 
 
 def test_verify_accepts_real_evidence_and_drops_past_dates():
-    candidate = {"text": "Submit before 31/10/26.", "sender": "A"}
-    sent = datetime(2026, 10, 23, 9, 0)
+    sent = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    deadline = sent.date() + timedelta(days=8)
+    deadline_text = deadline.strftime("%d/%m/%Y")
+    candidate = {"text": f"Submit before {deadline_text}.", "sender": "A"}
     valid = [
         {
             "title": "Submit",
-            "date": "2026-10-31",
+            "date": deadline.isoformat(),
             "time": "23:59",
-            "evidence": "Submit before 31/10/26",
+            "evidence": f"Submit before {deadline_text}",
         }
     ]
-    past = [{"title": "Old", "date": "2026-01-01", "evidence": "Submit before"}]
+    past_day = sent.date() - timedelta(days=1)
+    past_text = past_day.strftime("%d/%m/%Y")
+    past_candidate = {"text": f"Submit before {past_text}.", "sender": "A"}
+    past = [
+        {
+            "title": "Old",
+            "date": past_day.isoformat(),
+            "evidence": f"Submit before {past_text}",
+        }
+    ]
     assert len(verify(valid, candidate, sent)) == 1
-    assert verify(past, candidate, sent) == []
+    assert verify(past, past_candidate, sent) == []
 
 
 def test_ics_has_events_and_reminders():
