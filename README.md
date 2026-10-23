@@ -1,6 +1,6 @@
 # DeadlineHound
 
-DeadlineHound is an early local prototype for finding deadline and meeting announcements in exported WhatsApp chats. A small open-weight language model proposes events; Python checks that the quoted evidence exists in the original message and rejects invalid or past dates. You can review the results and download an `.ics` calendar file.
+DeadlineHound is an early local prototype for finding deadline and meeting announcements in exported WhatsApp chats. A small open-weight language model proposes events; Python checks that the quoted evidence exists in the original message, resolves supported dates and times from that quote, and rejects invalid or past dates. You can review the results and download an `.ics` calendar file.
 
 This version uses Python's standard library and Ollama's local HTTP API. It does not use Streamlit, pandas, the Ollama Python package, an API key, or a cloud AI service. That keeps it usable on systems where compiled Python packages are blocked.
 
@@ -37,7 +37,7 @@ The app listens only on this computer at `127.0.0.1`. A selected text file is re
 
 - The parser expects day/month WhatsApp date formats.
 - Small models can miss, misunderstand, or omit events. Always check the original message and the event date before importing the calendar.
-- Relative dates and unusual chat export formats may not be interpreted correctly.
+- Relative dates are resolved only for clear phrases such as today, tomorrow, or a weekday. Ambiguous or unsupported date wording is omitted rather than guessed.
 
 ## License
 
