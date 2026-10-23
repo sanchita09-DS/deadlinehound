@@ -107,13 +107,22 @@ def _json_array(raw: str) -> list:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.I)
-    start = cleaned.find("[")
-    if start < 0:
-        raise ValueError("The model did not return a JSON list.")
-    value, _ = json.JSONDecoder().raw_decode(cleaned[start:])
-    if not isinstance(value, list):
-        raise ValueError("The model response was not a JSON list.")
-    return value
+    starts = [position for position in (cleaned.find("["), cleaned.find("{")) if position >= 0]
+    if not starts:
+        raise ValueError("The model did not return JSON. Please try again.")
+    try:
+        value, _ = json.JSONDecoder().raw_decode(cleaned[min(starts):])
+    except json.JSONDecodeError as exc:
+        raise ValueError("The model returned unreadable JSON. Please try again.") from exc
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        events = value.get("events")
+        if isinstance(events, list):
+            return events
+        if "title" in value and "date" in value:
+            return [value]
+    raise ValueError("The model response did not contain an event list. Please try again.")
 
 
 def _same_words(first: str, second: str) -> bool:
@@ -207,19 +216,33 @@ def _verified_events(proposed: list, candidates: list[dict]) -> list[dict]:
     for item in proposed:
         if not isinstance(item, dict):
             continue
-        try:
-            candidate_id = int(item.get("candidate_id"))
-            candidate = candidates[candidate_id]
-        except (ValueError, TypeError, IndexError):
-            continue
         title = str(item.get("title", "")).strip()[:120]
         evidence = str(item.get("evidence", "")).strip()
         action = str(item.get("action", "")).strip()[:240]
         if action.casefold() in {"none", "null", "n/a", "unknown"}:
             action = ""
-        time_value = str(item.get("time", "")).strip()
-        if not title or not evidence or not _same_words(evidence, candidate["text"]):
+        if not title or not evidence:
             continue
+        try:
+            candidate_id = int(item.get("candidate_id"))
+            if candidate_id < 0:
+                raise IndexError
+            candidate = candidates[candidate_id]
+        except (ValueError, TypeError, IndexError):
+            candidate = None
+            candidate_id = -1
+        # Small local models sometimes omit candidate_id. Recover it only when
+        # the exact copied quote identifies one and only one candidate.
+        if candidate is None or not _same_words(evidence, candidate["text"]):
+            matches = [
+                index for index, possible in enumerate(candidates)
+                if _same_words(evidence, possible["text"])
+            ]
+            if len(matches) != 1:
+                continue
+            candidate_id = matches[0]
+            candidate = candidates[candidate_id]
+        time_value = str(item.get("time", "")).strip()
         date_options = _date_clues(evidence, candidate["sent"])
         unique_dates = list(dict.fromkeys(date_options))
         if not unique_dates:
@@ -293,7 +316,13 @@ def extract_events(messages: list[dict]) -> tuple[list[dict], int]:
         + json.dumps(numbered, ensure_ascii=False)
     )
     request_data = json.dumps(
-        {"model": MODEL, "prompt": prompt, "stream": False, "format": "json"}
+        {
+            "model": MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0},
+        }
     ).encode("utf-8")
     request = urllib.request.Request(
         OLLAMA_URL, data=request_data, headers={"Content-Type": "application/json"}

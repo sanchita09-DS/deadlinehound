@@ -60,23 +60,27 @@ def results_page(events: list[dict], parsed_count: int, candidate_count: int, or
         f"{len(events)} event(s) passed the evidence and date checks.</p>"
     )
     if events:
-        rows = "".join(
-            "<tr><td>" + html.escape(event["title"]) + "</td><td>"
-            + html.escape(event["date"]) + ("<br>" + html.escape(event["time"]) if event["time"] else "<br><span class='muted'>All day</span>")
-            + "</td><td>" + (html.escape(event["action"]) if event["action"] else "—") + "</td><td><q>"
-            + html.escape(event["evidence"]) + "</q></td></tr>"
-            for event in events
-        )
-        event_json = json.dumps(events, ensure_ascii=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-        export = (
-            "<form method='post' action='/calendar'><input type='hidden' name='events' value='"
-            + html.escape(event_json, quote=True)
-            + "'><button type='submit'>Download deadlines.ics</button></form>"
-        )
+        rows = []
+        for index, event in enumerate(events):
+            rows.append(
+                "<tr><td><input type='checkbox' name='keep_" + str(index)
+                + "' value='1' checked aria-label='Keep event'></td><td><input required name='title_"
+                + str(index) + "' value='" + html.escape(event["title"], quote=True)
+                + "'></td><td><input required type='date' name='date_" + str(index)
+                + "' value='" + html.escape(event["date"], quote=True)
+                + "'><br><input type='time' name='time_" + str(index) + "' value='"
+                + html.escape(event["time"], quote=True) + "'></td><td><input name='action_"
+                + str(index) + "' value='" + html.escape(event["action"], quote=True)
+                + "'></td><td><q>" + html.escape(event["evidence"]) + "</q></td></tr>"
+            )
         table = (
-            "<div style='overflow:auto'><table><thead><tr><th>Event</th><th>Date and time</th>"
-            "<th>Action</th><th>Evidence from the message</th></tr></thead><tbody>"
-            + rows + "</tbody></table></div>"
+            "<p>Edit the title, date, or time, and untick any event you do not want.</p>"
+            "<form method='post' action='/calendar'><input type='hidden' name='count' value='"
+            + str(len(events)) + "'><div style='overflow:auto'><table><thead><tr>"
+            "<th>Keep</th><th>Event</th><th>Date and time</th><th>Action</th>"
+            "<th>Evidence from the message</th></tr></thead><tbody>"
+            + "".join(rows) + "</tbody></table></div>"
+            "<button type='submit'>Download selected events (.ics)</button></form>"
         )
     else:
         table = "<p>No event passed the checks. Review the chat wording or try a larger model; don't invent a deadline.</p>"
@@ -84,7 +88,7 @@ def results_page(events: list[dict], parsed_count: int, candidate_count: int, or
     again = "<p><a href='/'>Analyze another chat</a></p>"
     # Retain the original chat in this response only for a clear review trail; it is never logged or sent off-device.
     source_note = "<details><summary>Show the submitted chat</summary><pre style='white-space:pre-wrap'>" + html.escape(original_chat) + "</pre></details>"
-    return page("<section class='card'><h2>2. Review the results</h2>" + summary + table + export + source_note + again + "</section>")
+    return page("<section class='card'><h2>2. Review the results</h2>" + summary + table + source_note + again + "</section>")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -136,9 +140,24 @@ class Handler(BaseHTTPRequestHandler):
             self._send(results_page(events, len(messages), candidate_count, chat_text))
             return
         try:
-            events = json.loads(form.get("events", [""])[0])
-            if not isinstance(events, list) or len(events) > 100:
+            count = int(form.get("count", ["0"])[0])
+            if count < 0 or count > 100:
                 raise ValueError("Invalid event list")
+            events = []
+            for index in range(count):
+                if form.get(f"keep_{index}", [""])[0] != "1":
+                    continue
+                events.append(
+                    {
+                        "title": form.get(f"title_{index}", [""])[0].strip(),
+                        "date": form.get(f"date_{index}", [""])[0].strip(),
+                        "time": form.get(f"time_{index}", [""])[0].strip(),
+                        "action": form.get(f"action_{index}", [""])[0].strip(),
+                    }
+                )
+            if not events:
+                self._send(home("Select at least one event to include in the calendar."))
+                return
             data = make_ics(events)
         except (ValueError, TypeError, json.JSONDecodeError):
             self._send(home("The calendar data was not valid. Please analyze the chat again."))
