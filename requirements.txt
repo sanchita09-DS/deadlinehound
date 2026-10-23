@@ -1,0 +1,2 @@
+# No third-party Python packages are required.
+# The app uses Python's standard library and Ollama's local HTTP API.

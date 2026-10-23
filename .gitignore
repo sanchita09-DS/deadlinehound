@@ -218,3 +218,13 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Private chat exports and generated calendars - never commit
+chats/
+*.zip
+*.ics
+*.txt
+!requirements.txt
+!sample_data/sample_chat.txt
+
+
